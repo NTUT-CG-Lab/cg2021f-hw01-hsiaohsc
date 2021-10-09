@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>index</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<link type="text/css" rel="stylesheet" href="main.css">
+	</head>
+	<body>
+		<div id="tablet" style = 'position:absolute; top:0;'></div>
+
+		<script src="./opentype.min.js"></script>
+		<script src="./three.min.js"></script>
+		<script src="./TTFLoader.js"></script>
+		<script src="./scoreoutputer.min.js"></script>
+		<script src="./PLYLoader.js"></script>
+		
+		<script>
+			// 建構子 ScoreOutputer 接受一個字串，該字串為 csv 的檔案名稱
+			// 以下面範例，檔名就為 "109598105(總分: 6).csv"
+			var so = new ScoreOutputer("110598078");
+			so.installCSS(function(){
+				// 安裝 bootstrap 的 css，如果在 html 上方引用 bootstrap 5.1.1 的話就不用使用 installCSS ，注意一定要 bootstrap css 5.1.1 版
+				// installCSS 接收一個 callback 當作參數，作為成功安裝 bootstrap css 的回呼函式
+			
+				//加入項目，分數，完成狀況
+				//第一個參數為 項目名稱
+				//第2個參數為 項目分數
+				//第3個參數為 完成狀況，有完成 true/未完成 false
+				//有幾個項目就呼叫幾個 addChild
+				//addChild 要比 renderModal 先呼叫
+				so.addChild("創建場景", 2, true);
+				so.addChild("讀取字型檔", 2, true);
+				so.addChild("將地支以圓形排列", 2, true);
+				so.addChild("滑鼠點擊12地支分別跳轉網頁", 1, true);
+				so.addChild("顯示\"高等計算機圖型作業\"", 1, true);
+				so.addChild("時鐘效果", 1, true);
+				so.addChild("任何ply格式模型", 1, true);
+		
+				//產生自評表，參數如下所示
+				so.renderModal(
+					//1. 自評表插入位置 (預設 document.body)
+					// document.body,
+					document.getElementById("tablet"),
+					//2. 自評表背景 (預設紅色)
+					'rgba(100,45,58,1)', 
+					//3. 自評表文字顏色 (預設白色)
+					'white', 
+					//4. 自評表文字大小 (預設 14pt)
+					'15pt', 
+					//5. 自評表 checkbox 文字大小 (預設多少忘了)
+					'15px', 
+					//6. 自評表標題 (預設 "自我評分表")
+					dialogTitle='自我評分表'
+				);
+				
+				//設定下載按鈕 <-- 一定要呼叫這個函數，不然沒有下載功能
+				so.installDownloadBtn();
+				
+				//產生 "開啟自評表按鈕"
+				so.renderBtn(
+					//自評表按鈕插入位置
+					// document.body,
+					document.getElementById("tablet"),
+					//自評表按鈕文字
+					"開啟自評表"
+				);
+			});
+		</script>
+		<script>
+			var fontttf = 'MoeLI.ttf';
+
+			let container;
+			let camera, cameraTarget, scene, renderer;
+			let group, textMesh1, textMesh2, textGeo, material;
+			let firstLetter = true;
+
+			let text = ['卯','寅','丑','子','亥','戌','酉','申','未','午','巳','辰'];
+			let lowtext = '高等計算機圖學';
+			const height =5,
+				size = 20,
+				hover = -5,
+				curveSegments = 4,
+				bevelThickness = 2,
+				bevelSize = 1;
+
+			var font = null;
+			
+			let secondHand, minuteHand, hourHand;
+			let bunny;
+
+
+			// RAYCAST
+			const raycaster = new THREE.Raycaster();
+			const mouse = new THREE.Vector2();
+
+			// let windowHalfX = window.innerWidth / 2;
+
+			init();
+			animate();
+
+			function init() {
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+
+				// CAMERA
+
+				camera = new THREE.PerspectiveCamera( 30, window.innerWidth / window.innerHeight, 1, 1500 );
+				camera.position.set( 0,500, 600 );
+
+				cameraTarget = new THREE.Vector3( 0, 150, 0 );
+
+				// SCENE
+
+				scene = new THREE.Scene();
+				scene.background = new THREE.Color( 0x000000 );
+				scene.fog = new THREE.Fog( 0x000000, 250, 1400 );
+
+				// LIGHTS
+
+				const dirLight = new THREE.DirectionalLight( 0xffffff, 2 );
+				dirLight.position.set( 0,50, 60 ).normalize();
+				scene.add( dirLight );
+
+				material = new THREE.MeshPhongMaterial( { color: 0xffffff, flatShading: true } );
+
+				group = new THREE.Group();
+				group.position.y = 100;
+
+				scene.add( group );
+
+				// CIRCLE
+
+				const c_geometry = new THREE.CircleGeometry( 100, 32 );
+				const c_material = new THREE.MeshBasicMaterial( { color: 0x97CBFF, opacity: 0.9, transparent: true } );
+				const circle = new THREE.Mesh( c_geometry, c_material );
+				circle.position.y = 200;
+				scene.add( circle );
+
+				
+				// TEXTS
+
+				const loader = new THREE.TTFLoader();
+				
+				loader.load( fontttf, function ( json ) {
+					// console.log(json)
+					font = new THREE.Font( json );
+					createText();
+					createTexts();
+				} );
+				
+				for(let i=0;i<12;i++) {
+					createCircles(i);
+				}
+				
+				// Clock Hands
+				const lineMaterial = new THREE.LineBasicMaterial( { color: 0xffffff, linewidth:30 } );
+				const secondPoints = [];
+				secondPoints.push( new THREE.Vector3( 0, 0, 0 ) );
+				secondPoints.push( new THREE.Vector3( 0, 65, 0 ) )
+				const secondGeometry = new THREE.BufferGeometry().setFromPoints( secondPoints );
+				secondHand = new THREE.Line( secondGeometry, lineMaterial );
+				secondHand.position.y = 200;
+				secondHand.position.z = 1;
+				scene.add( secondHand );
+
+				const minutePoints = [];
+				minutePoints.push( new THREE.Vector3( 0, 0, 0 ) );
+				minutePoints.push( new THREE.Vector3( 0, 40, 0 ) )
+				const minuteGeometry = new THREE.BufferGeometry().setFromPoints( minutePoints );
+				minuteHand = new THREE.Line( minuteGeometry, lineMaterial );
+				minuteHand.position.y = 200;
+				minuteHand.position.z = 1;
+				scene.add( minuteHand );
+
+				const hourPoints = [];
+				hourPoints.push( new THREE.Vector3( 0, 0, 0 ) );
+				hourPoints.push( new THREE.Vector3( 0, 25, 0 ) )
+				const hourGeometry = new THREE.BufferGeometry().setFromPoints( hourPoints );
+				hourHand = new THREE.Line( hourGeometry, lineMaterial );
+				hourHand.position.y = 200;
+				hourHand.position.z = 1;
+				scene.add( hourHand );
+
+
+				// PLANE
+
+				const plane = new THREE.Mesh(
+					new THREE.PlaneGeometry( 300, 300 ),
+					new THREE.MeshBasicMaterial( { color: 0xffffff, opacity: 0.5, transparent: false } )
+				);
+				plane.position.y = 100;
+				plane.position.z = -10;
+				plane.rotation.x = - Math.PI / 2;
+				scene.add( plane );
+
+				// PLY Model
+				const plyLoader = new THREE.PLYLoader();
+				plyLoader.load('./bun_zipper.ply',function (geometry) {
+					const plymaterial = new THREE.MeshStandardMaterial( { color: 0xff8833, flatShading: true } );
+					// const plymaterial = new THREE.MeshPhongMaterial( { color: 0xff5533, specular: 0x111111, shininess: 200 } );
+					bunny = new THREE.Mesh( geometry, plymaterial );
+
+					bunny.position.set( -140, 100, 150 );
+					// mesh.rotation.set( 0, - Math.PI / 2, 0 );
+					bunny.scale.set( 200, 200, 200 );
+					scene.add( bunny );
+				});
+
+
+				console.log(scene);
+
+				// RENDERER
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				container.appendChild( renderer.domElement );
+
+				// EVENTS
+
+				container.style.touchAction = 'none';
+				container.addEventListener( 'mousemove', onMouseMove, false );
+				container.addEventListener( 'pointerdown', onPointerDown );
+
+				window.addEventListener( 'resize', onWindowResize );
+
+
+			}
+
+			function onWindowResize() {
+
+				// windowHalfX = window.innerWidth / 2;
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			function createText() {
+
+				textGeo = new THREE.TextGeometry( lowtext, {
+
+					font: font,
+
+					size: size,
+					height: height,
+					curveSegments: curveSegments,
+
+					bevelThickness: bevelThickness,
+					bevelSize: bevelSize,
+					bevelEnabled: true
+
+				} );
+
+				textGeo.computeBoundingBox();
+				textGeo.computeVertexNormals();
+
+				const centerOffset = - 0.5 * ( textGeo.boundingBox.max.x - textGeo.boundingBox.min.x );
+				const lowMaterial = new THREE.MeshPhongMaterial( { color: 0xFFE4CA, flatShading: true } );
+
+				textMesh1 = new THREE.Mesh( textGeo, lowMaterial );
+
+				textMesh1.position.x = centerOffset;
+				textMesh1.position.y = hover;
+				textMesh1.position.z = 100;
+
+				textMesh1.rotation.x = -0.5*Math.PI;
+				textMesh1.rotation.y = Math.PI * 2;
+
+				group.add( textMesh1 );
+
+			}
+
+			function paddingLeft(str){
+				if(str.length >= 2)
+					return str;
+				else
+					return paddingLeft("0" +str,2);
+			}
+
+			function createCircles(i) {
+				let hwNum;
+				if(i>=0 && i<4){
+					hwNum = paddingLeft((Math.abs(i-4)).toString());
+				}
+				else if(i>=4 && i<12){
+					hwNum = paddingLeft((Math.abs(i-16)).toString());
+				}
+				const c_geometry = new THREE.CircleGeometry( 16, 32 );
+				const c_material = new THREE.MeshBasicMaterial( { color: 0xB9B9FF, opacity: 0.9, transparent: true } );
+				const circle = new THREE.Mesh( c_geometry, c_material );
+				circle.position.x = Math.cos((i/6)*Math.PI)*75;
+				circle.position.y = Math.sin((i/6)*Math.PI)*75+200;
+				circle.position.z = 1;
+				circle.userData = { URL: "https://ntut-cg-lab.github.io/cg2021f-hw"+hwNum+"-hsiaohsc/"};
+				scene.add( circle );
+			}
+
+			function createTexts() {
+				
+				for(let i=0;i<12;i++){
+					textGeo = new THREE.TextGeometry( text[i], {
+						font: font,
+	
+						size: size,
+						height: height,
+						curveSegments: curveSegments,
+	
+						bevelThickness: bevelThickness,
+						bevelSize: bevelSize,
+						bevelEnabled: true
+	
+					} );
+
+					textGeo.computeBoundingBox();
+					textGeo.computeVertexNormals();
+	
+					const centerOffset = - 0.5 * ( textGeo.boundingBox.max.x - textGeo.boundingBox.min.x );
+	
+					textMesh1 = new THREE.Mesh( textGeo, material );
+	
+					textMesh1.position.x = Math.cos(i*(1/6)*Math.PI)*75-15;
+					textMesh1.position.y = Math.sin(i*(1/6)*Math.PI)*75+92;
+					textMesh1.position.z = -5;
+	
+					textMesh1.rotation.x = 0;
+					textMesh1.rotation.y = Math.PI * 2;
+	
+					group.add( textMesh1 );
+				}
+
+			}
+
+			function onPointerDown( event ) {
+				if ( event.isPrimary === false ) return;
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+				render();
+				document.addEventListener( 'pointerup', onPointerUp );
+			}
+
+			function onPointerUp() {
+
+				if ( event.isPrimary === false ) return;
+
+				document.removeEventListener( 'pointerup', onPointerUp );
+
+			}
+
+			function onMouseMove( event ) {
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+				let findCanvas = document.getElementsByTagName('canvas');
+				
+				raycaster.setFromCamera( mouse, camera );
+				const intersects = raycaster.intersectObjects( scene.children );
+				for ( let i = 0; i < intersects.length; i ++ ) {
+					if(intersects[i].object.userData.URL!==undefined){
+						findCanvas[0].style.cursor = 'pointer';
+						break;
+					}
+					else {
+						findCanvas[0].style.cursor = 'default';
+					}
+				}
+			}
+
+			function setClockHand() {
+				const dateObject = new Date();
+				const second = dateObject.getSeconds();
+				const minute = dateObject.getMinutes();
+				const hour = dateObject.getHours();
+				secondHand.rotation.z = -2*Math.PI*(second/60);
+				minuteHand.rotation.z = -2*Math.PI*(minute/60+second/(60*60));
+				hourHand.rotation.z = -2*Math.PI*(hour/12+minute/(60*12));
+			}
+
+			function render() {
+
+				// update the picking ray with the camera and mouse position
+				raycaster.setFromCamera( mouse, camera );
+
+				// calculate objects intersecting the picking ray
+				const intersects = raycaster.intersectObjects( scene.children );
+				
+				for ( let i = 0; i < intersects.length; i ++ ) {
+					if(intersects[i].object.userData.URL!==undefined){
+						window.open(intersects[i].object.userData.URL);
+						break;
+					}
+				}
+				renderer.render( scene, camera );
+
+			}
+
+			function runBunny(){
+				if(bunny===undefined)
+					return;
+				const timer = 0.0005 * Date.now();
+				bunny.position.x = 140 * Math.cos( timer );
+				bunny.position.z = 140 * Math.sin( timer );
+			}
+			//
+
+			function animate() {
+
+				setClockHand();
+				runBunny();
+				requestAnimationFrame( animate );
+
+				camera.lookAt( cameraTarget );
+
+				renderer.render( scene, camera );
+
+			}
+
+		</script>
+	</body>
+</html>
